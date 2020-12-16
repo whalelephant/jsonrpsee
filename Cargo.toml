@@ -7,7 +7,9 @@ license = "MIT"
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0.34"
 async-std = { version = "1.8.0", features = ["attributes"] }
+beef = "0.4.4"
 bs58 = "0.4.0"
 fnv = "1.0.7"
 futures = "0.3.8"
@@ -19,14 +21,16 @@ parking_lot = "0.11.1"
 pin-project = "1.0.2"
 jsonrpsee-proc-macros = { path = "proc-macros" }
 rand = "0.7.3"
+rustc-hash = "1.1.0"
 serde = { version = "1.0.118", default-features = false, features = ["derive"] }
-serde_json = "1.0.60"
+serde_json = { version = "1.0.60", features = ["raw_value"] }
 smallvec = { version = "1.5.1", default-features = false }
 thiserror = "1.0.22"
 
 # used for tests and HTTP/hyper
 # the features are used only for tests but enabled because `dev-depedencies` are leaked into dependencies.
 tokio = { version = "0.2.24", features = ["stream", "rt-threaded", "macros"], optional = true }
+tokio-util = { version = "0.3", features = ["compat"] }
 
 # HTTP-related dependencies
 hyper = { version = "0.13.9", features = ["stream"], optional = true }

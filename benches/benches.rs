@@ -26,14 +26,12 @@ async fn http_server(tx: Sender<SocketAddr>) {
 	}
 }
 
-async fn ws_server(tx: Sender<SocketAddr>) {
-	let server = WsServer::new("127.0.0.1:0").await.unwrap();
-	let mut say_hello = server.register_method("say_hello".to_string()).unwrap();
-	tx.send(*server.local_addr()).unwrap();
-	loop {
-		let r = say_hello.next().await;
-		r.respond(Ok(JsonValue::String("lo".to_owned()))).await.unwrap();
-	}
+async fn ws_server() {
+	let mut server = WsServer::default();
+
+	server.register_method("say_hello", |_| Ok("lo"));
+
+	server.start("127.0.0.1:8888").await.unwrap();
 }
 
 pub fn http_requests(c: &mut criterion::Criterion) {
@@ -74,10 +72,10 @@ pub fn http_requests(c: &mut criterion::Criterion) {
 
 pub fn websocket_requests(c: &mut criterion::Criterion) {
 	let mut rt = tokio::runtime::Runtime::new().unwrap();
-	let (tx_addr, rx_addr) = oneshot::channel::<SocketAddr>();
-	async_std::task::spawn(ws_server(tx_addr));
-	let server_addr = block_on(rx_addr).unwrap();
-	let client = Arc::new(block_on(WsClient::new(&format!("ws://{}", server_addr), WsConfig::default())).unwrap());
+	// let (tx_addr, rx_addr) = oneshot::channel::<SocketAddr>();
+	rt.spawn(ws_server());
+	// let server_addr = block_on(rx_addr).unwrap();
+	let client = Arc::new(block_on(WsClient::new("ws://127.0.0.1:8888", WsConfig::default())).unwrap());
 
 	c.bench_function("synchronous WebSocket round trip", |b| {
 		b.iter(|| {

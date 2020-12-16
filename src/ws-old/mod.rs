@@ -24,12 +24,13 @@
 // IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
+mod raw;
 mod server;
-mod types;
+mod transport;
 
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 
-// pub use server::{RegisteredMethod, RegisteredNotification, Server as WsServer};
-pub use server::Server as WsServer;
-// pub use transport::WsTransportServer;
+pub use raw::{RawServer as RawWsServer, RawServerEvent as RawWsServerEvent, TypedResponder as WsTypedResponder};
+pub use server::{RegisteredMethod, RegisteredNotification, Server as WsServer};
+pub use transport::WsTransportServer;
