@@ -24,131 +24,125 @@
 // IN background_task WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
-use serde_json::value::RawValue;
 use futures::io::{BufReader, BufWriter};
-use soketto::handshake::{Server as SokettoServer, server::Response};
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use soketto::handshake::{server::Response, Server as SokettoServer};
+use std::sync::Arc;
+use thiserror::Error;
 use tokio::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio_util::compat::Tokio02AsyncReadCompatExt;
-use thiserror::Error;
-use rustc_hash::FxHashMap;
 
 use crate::ws::types::{JsonRpcRequest, JsonRpcResponse, TwoPointZero};
 
-type Methods = FxHashMap<&'static str, Box<dyn Send + Sync + Fn(Option<&RawValue>, &str, &mpsc::UnboundedSender<String>) -> anyhow::Result<()>>>;
+type Methods<'a> = FxHashMap<
+	&'a str,
+	Box<dyn Send + Sync + 'a + Fn(Option<&RawValue>, &str, &mpsc::UnboundedSender<String>) -> anyhow::Result<()>>,
+>;
 
 #[derive(Default)]
-pub struct Server {
-    methods: Methods,
+pub struct Server<'a> {
+	methods: Methods<'a>,
 }
 
 trait RpcResult {
-    fn to_json(self, id: Option<&RawValue>) -> anyhow::Result<String>;
+	fn to_json(self, id: Option<&RawValue>) -> anyhow::Result<String>;
 }
 
 #[derive(Error, Debug)]
 pub enum RpcError {
-    #[error("unknown rpc error")]
-    Unknown,
+	#[error("unknown rpc error")]
+	Unknown,
 }
 
-impl Server {
-    pub fn register_method<F, R>(&mut self, method_name: &'static str, callback: F)
-    where
-        R: Serialize,
-        F: Fn(&str) -> Result<R, RpcError> + Send + Sync + 'static, // TODO: figure out correct lifetime here
-    {
-        self.methods.insert(method_name, Box::new(move |id, params, tx| {
-            let result = callback(params)?;
+impl<'a> Server<'a> {
+	pub fn register_method<F, R>(&mut self, method_name: &'a str, callback: F)
+	where
+		R: Serialize,
+		F: Fn(&str) -> Result<R, RpcError> + Send + Sync + 'a, // TODO: figure out correct lifetime here
+	{
+		self.methods.insert(
+			method_name,
+			Box::new(move |id, params, tx| {
+				let result = callback(params)?;
 
-            let json = serde_json::to_string(&JsonRpcResponse {
-                jsonrpc: TwoPointZero,
-                id,
-                result,
-            })?;
+				let json = serde_json::to_string(&JsonRpcResponse { jsonrpc: TwoPointZero, id, result })?;
 
-            tx.send(json).map_err(Into::into)
-        }));
-    }
+				tx.send(json).map_err(Into::into)
+			}),
+		);
+	}
 
-    // TODO: This needs to return the sink channel, and use it to push new messages out.
-    pub fn register_subscription(
-    	&mut self,
-    	subscribe_method_name: &'static str,
-    	unsubscribe_method_name: &'static str,
-    ) {
-    	self.methods.insert(subscribe_method_name, Box::new(move |id, params, tx| {
-    		Ok(())
-    	}));
+	// TODO: This needs to return the sink channel, and use it to push new messages out.
+	pub fn register_subscription(&mut self, subscribe_method_name: &'a str, unsubscribe_method_name: &'a str) {
+		self.methods.insert(subscribe_method_name, Box::new(move |id, params, tx| Ok(())));
 
-    	self.methods.insert(unsubscribe_method_name, Box::new(move |id, params, tx| {
-    		Ok(())
-    	}));
-    }
+		self.methods.insert(unsubscribe_method_name, Box::new(move |id, params, tx| Ok(())));
+	}
 
-    /// Build the server
-    pub async fn start(self, addr: impl AsRef<str>) -> anyhow::Result<()> {
-    	let addr = addr.as_ref();
-        let mut listener = tokio::net::TcpListener::bind(addr).await?;
-        let mut incoming = listener.incoming();
+	/// Build the server
+	pub async fn start(self, addr: impl AsRef<str>) -> anyhow::Result<()> {
+		let addr = addr.as_ref();
+		let mut listener = tokio::net::TcpListener::bind(addr).await?;
+		let mut incoming = listener.incoming();
 
-        let methods = Arc::new(self.methods);
+		let methods = Arc::new(self.methods);
 
-        while let Some(socket) = incoming.next().await {
-            if let Ok(socket) = socket {
-                socket.set_nodelay(true).unwrap();
+		while let Some(socket) = incoming.next().await {
+			if let Ok(socket) = socket {
+				socket.set_nodelay(true).unwrap();
 
-                let methods = methods.clone();
+				let methods = methods.clone();
 
-                tokio::spawn(async move {
-                    background_task(socket, methods).await
-                });
-            }
-        }
+				// tokio::spawn(async move {
+				//     background_task(socket, methods).await
+				// });
+			}
+		}
 
-        Ok(())
-    }
+		Ok(())
+	}
 }
 
-async fn background_task(socket: tokio::net::TcpStream, methods: Arc<Methods>) -> anyhow::Result<()> {
-    // For each incoming background_task we perform a handshake.
-    let mut server = SokettoServer::new(BufReader::new(BufWriter::new(socket.compat())));
+async fn background_task<'a>(socket: tokio::net::TcpStream, methods: Arc<Methods<'a>>) -> anyhow::Result<()> {
+	// For each incoming background_task we perform a handshake.
+	let mut server = SokettoServer::new(BufReader::new(BufWriter::new(socket.compat())));
 
-    let websocket_key = {
-        let req = server.receive_request().await?;
-        req.into_key()
-    };
+	let websocket_key = {
+		let req = server.receive_request().await?;
+		req.into_key()
+	};
 
-    // Here we accept the client unconditionally.
-    let accept = Response::Accept { key: &websocket_key, protocol: None };
-    server.send_response(&accept).await?;
+	// Here we accept the client unconditionally.
+	let accept = Response::Accept { key: &websocket_key, protocol: None };
+	server.send_response(&accept).await?;
 
-    // And we can finally transition to a websocket background_task.
-    let (mut sender, mut receiver) = server.into_builder().finish();
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+	// And we can finally transition to a websocket background_task.
+	let (mut sender, mut receiver) = server.into_builder().finish();
+	let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
-    tokio::spawn(async move {
-        while let Some(response) = rx.recv().await {
-            let _ = sender.send_binary_mut(response.into_bytes()).await;
-            let _ = sender.flush().await;
-        }
-    });
+	tokio::spawn(async move {
+		while let Some(response) = rx.recv().await {
+			let _ = sender.send_binary_mut(response.into_bytes()).await;
+			let _ = sender.flush().await;
+		}
+	});
 
-    let mut data = Vec::new();
+	let mut data = Vec::new();
 
-    loop {
-        data.clear();
+	loop {
+		data.clear();
 
-        receiver.receive_data(&mut data).await?;
+		receiver.receive_data(&mut data).await?;
 
-        let req: Result<JsonRpcRequest, _> = serde_json::from_slice(&data);
+		let req: Result<JsonRpcRequest, _> = serde_json::from_slice(&data);
 
-        if let Ok(req) = req {
-            if let Some(method) = methods.get(&*req.method) {
-                (method)(req.id, req.params.get(), &tx)?;
-            }
-        }
-    }
+		if let Ok(req) = req {
+			if let Some(method) = methods.get(&*req.method) {
+				(method)(req.id, req.params.get(), &tx)?;
+			}
+		}
+	}
 }
