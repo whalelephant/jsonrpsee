@@ -1,8 +1,10 @@
 [workspace]
 members = [
 	"benches",
+	"examples",
 	"http-client",
 	"http-server",
+	"proc-macros",
 	"test-utils",
 	"tests",
 	"types",
