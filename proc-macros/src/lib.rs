@@ -165,7 +165,6 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 	let mut notifications_blocks = Vec::new();
 	let mut function_blocks = Vec::new();
 	let mut tmp_to_rq = Vec::new();
-
 	struct GenericParams {
 		generics: HashSet<syn::Ident>,
 		types: HashSet<syn::Ident>,
@@ -177,18 +176,14 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 			}
 		}
 	}
-
 	let mut generic_params = GenericParams { generics, types: HashSet::new() };
-
 	for function in &api.definitions {
 		let function_is_notification = function.is_void_ret_type();
 		let variant_name = snake_case_to_camel_case(&function.signature.ident);
 		let rpc_method_name =
 			function.attributes.method.clone().unwrap_or_else(|| function.signature.ident.to_string());
-
 		let mut params_builders = Vec::new();
 		let mut params_names_list = Vec::new();
-
 		for input in function.signature.inputs.iter() {
 			let (ty, param_variant_name, rpc_param_name) = match input {
 				syn::FnArg::Receiver(_) => {
@@ -201,9 +196,7 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 					(ty, param_variant_name(&pat)?, rpc_param_name(&pat, &attrs)?)
 				}
 			};
-
 			syn::visit::visit_type(&mut generic_params, &ty);
-
 			params_names_list.push(quote_spanned!(function.signature.span()=> #param_variant_name));
 			if !function_is_notification {
 				params_builders.push(quote_spanned!(function.signature.span()=>
@@ -232,7 +225,6 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 				));
 			}
 		}
-
 		if function_is_notification {
 			notifications_blocks.push(quote_spanned!(function.signature.span()=>
 				if method == #rpc_method_name {
@@ -249,7 +241,6 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 					request_outcome = Some(Tmp::#variant_name { #(#params_names_list),* });
 				}
 			));
-
 			tmp_to_rq.push(quote_spanned!(function.signature.span() =>
 				Some(Tmp::#variant_name { #(#params_names_list),* }) => {
 					let request = server.request_by_id(&request_id).unwrap();
@@ -261,7 +252,6 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 	}*/
 
 	/*let params_tys = generic_params.types.iter();
-
 	let tmp_generics = if generic_params.types.is_empty() {
 		quote!()
 	} else {
@@ -275,14 +265,10 @@ fn build_api(api: api_def::ApiDefinition) -> Result<proc_macro2::TokenStream, sy
 		enum Tmp #tmp_generics {
 			#(#tmp_variants,)*
 		}
-
 		let request_id = r.id();
 		let method = r.method().to_owned();
-
 		let mut request_outcome: Option<Tmp #tmp_generics> = None;
-
 		#(#function_blocks)*
-
 		match request_outcome {
 			#(#tmp_to_rq)*
 			None => server.request_by_id(&request_id).unwrap().respond(Err(jsonrpsee_types::jsonrpc::Error::method_not_found())),
