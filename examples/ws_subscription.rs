@@ -25,10 +25,11 @@
 // DEALINGS IN THE SOFTWARE.
 
 use jsonrpsee::{
-	ws_client::{traits::SubscriptionClient, v2::params::JsonRpcParams, Subscription, WsClientBuilder},
+	ws_client::{traits::{Client, SubscriptionClient}, v2::params::JsonRpcParams, Subscription, WsClientBuilder},
 	ws_server::WsServer,
 };
 use std::net::SocketAddr;
+use serde_json;
 
 const NUM_SUBSCRIPTION_RESPONSES: usize = 10;
 
@@ -48,6 +49,18 @@ async fn main() -> anyhow::Result<()> {
 		log::debug!("received {:?}", r);
 		i += 1;
 	}
+
+	let r = subscribe_hello.next().await;
+	println!("Got one more ({:?})", r);
+	// This is painful
+	// let o = client.request::<String>("unsubscribe_hello", JsonRpcParams::Array(vec![subscribe_hello.id.clone().into()])).await;
+	// Can't `SubscriptionId` be `Copy`?
+	let sub_id: serde_json::Value = subscribe_hello.id.clone().into();
+	let o = client.request::<String>("unsubscribe_hello", vec![sub_id].into()).await;
+	println!("Unsubscribed now? {:?}", o);
+	// This hangs
+	let r = subscribe_hello.next().await;
+	println!("No more ({:?})", r);
 
 	Ok(())
 }
