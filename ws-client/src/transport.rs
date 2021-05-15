@@ -25,12 +25,19 @@
 // DEALINGS IN THE SOFTWARE.
 
 use async_std::net::TcpStream;
-use async_tls::client::TlsStream;
+use async_tls::{client::TlsStream, TlsConnector};
 use futures::io::{BufReader, BufWriter};
 use futures::prelude::*;
+use rustls::ClientConfig;
 use soketto::connection;
 use soketto::handshake::client::{Client as WsRawClient, ServerResponse};
-use std::{borrow::Cow, io, net::SocketAddr, time::Duration};
+use std::{
+	borrow::Cow,
+	io::{self, Cursor},
+	net::SocketAddr,
+	path::Path,
+	time::Duration,
+};
 use thiserror::Error;
 
 type TlsOrPlain = crate::stream::EitherStream<TcpStream, TlsStream<TcpStream>>;
@@ -76,6 +83,8 @@ pub struct WsTransportClientBuilder<'a> {
 	pub origin: Option<Cow<'a, str>>,
 	/// Max payload size
 	pub max_request_body_size: u32,
+	/// Custom certificate.
+	pub custom_certificate: Option<&'a Path>,
 }
 
 /// Stream mode, either plain TCP or TLS.
@@ -227,7 +236,7 @@ impl<'a> WsTransportClientBuilder<'a> {
 					match self.mode {
 						Mode::Plain => TlsOrPlain::Plain(socket),
 						Mode::Tls => {
-							let connector = async_tls::TlsConnector::default();
+							let connector = tls_connector(self.custom_certificate).await?;
 							let dns_name: &str = webpki::DnsNameRef::try_from_ascii_str(self.host.as_str())?.into();
 							let tls_stream = connector.connect(dns_name, socket).await?;
 							TlsOrPlain::Tls(tls_stream)
@@ -303,6 +312,22 @@ pub fn parse_url(url: impl AsRef<str>) -> Result<(Vec<SocketAddr>, Host, Mode), 
 	// NOTE: `Url::socket_addrs` is using the default port if it's missing (ws:// - 80, wss:// - 443)
 	let sockaddrs = url.socket_addrs(|| None).map_err(WsHandshakeError::ResolutionFailed)?;
 	Ok((sockaddrs, host, mode))
+}
+
+async fn tls_connector(cafile: Option<&Path>) -> io::Result<TlsConnector> {
+	match cafile {
+		None => Ok(TlsConnector::default()),
+		Some(path) => {
+			let mut config = ClientConfig::new();
+			let file = async_std::fs::read(path).await?;
+			let mut pem = Cursor::new(file);
+			config
+				.root_store
+				.add_pem_file(&mut pem)
+				.map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))?;
+			Ok(TlsConnector::from(std::sync::Arc::new(config)))
+		}
+	}
 }
 
 #[cfg(test)]

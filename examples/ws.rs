@@ -28,7 +28,7 @@ use jsonrpsee::{
 	ws_client::{traits::Client, v2::params::JsonRpcParams, WsClientBuilder},
 	ws_server::WsServer,
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::Path};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -36,7 +36,10 @@ async fn main() -> anyhow::Result<()> {
 	let addr = run_server().await?;
 	let url = format!("ws://{}", addr);
 
-	let client = WsClientBuilder::default().build(&url).await?;
+	let client = WsClientBuilder::default()
+		.custom_certificate(Path::new("./rustls/test-ca/rsa/end.fullchain"))
+		.build("wss://localhost:8443")
+		.await?;
 	let response: String = client.request("say_hello", JsonRpcParams::NoParams).await?;
 	println!("r: {:?}", response);
 

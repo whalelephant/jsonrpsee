@@ -51,6 +51,7 @@ use serde::de::DeserializeOwned;
 use std::{
 	borrow::Cow,
 	marker::PhantomData,
+	path::Path,
 	sync::atomic::{AtomicU64, AtomicUsize, Ordering},
 	time::Duration,
 };
@@ -174,6 +175,7 @@ pub struct WsClientBuilder<'a> {
 	handshake_url: Cow<'a, str>,
 	max_concurrent_requests: usize,
 	max_notifs_per_subscription: usize,
+	custom_certificate: Option<&'a Path>,
 }
 
 impl<'a> Default for WsClientBuilder<'a> {
@@ -186,6 +188,7 @@ impl<'a> Default for WsClientBuilder<'a> {
 			handshake_url: From::from("/"),
 			max_concurrent_requests: 256,
 			max_notifs_per_subscription: 4,
+			custom_certificate: None,
 		}
 	}
 }
@@ -198,8 +201,8 @@ impl<'a> WsClientBuilder<'a> {
 	}
 
 	/// Set request timeout.
-	pub fn request_timeout(mut self, timeout: Option<Duration>) -> Self {
-		self.request_timeout = timeout;
+	pub fn request_timeout(mut self, timeout: Duration) -> Self {
+		self.request_timeout = Some(timeout);
 		self
 	}
 
@@ -210,8 +213,8 @@ impl<'a> WsClientBuilder<'a> {
 	}
 
 	/// Set origin header to pass during the handshake.
-	pub fn origin_header(mut self, origin: Option<Cow<'a, str>>) -> Self {
-		self.origin = origin;
+	pub fn origin_header(mut self, origin: Cow<'a, str>) -> Self {
+		self.origin = Some(origin);
 		self
 	}
 
@@ -240,6 +243,12 @@ impl<'a> WsClientBuilder<'a> {
 		self
 	}
 
+	/// Set path to custom certificate to use when connecting to the server.
+	pub fn custom_certificate(mut self, cert: &'a Path) -> Self {
+		self.custom_certificate = Some(cert);
+		self
+	}
+
 	/// Build the client with specified URL to connect to.
 	/// If the port number is missing from the URL, the default port number is used.
 	///
@@ -264,6 +273,7 @@ impl<'a> WsClientBuilder<'a> {
 			timeout: self.connection_timeout,
 			origin: None,
 			max_request_body_size: self.max_request_body_size,
+			custom_certificate: self.custom_certificate,
 		};
 
 		let (sender, receiver) = builder.build().await.map_err(|e| Error::Transport(Box::new(e)))?;
