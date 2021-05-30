@@ -33,6 +33,7 @@ use jsonrpsee::{
 };
 use std::net::SocketAddr;
 use std::time::Duration;
+use std::sync::Arc;
 
 pub async fn websocket_server_with_subscription() -> SocketAddr {
 	let (server_started_tx, server_started_rx) = oneshot::channel();
@@ -41,11 +42,11 @@ pub async fn websocket_server_with_subscription() -> SocketAddr {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 
 		let mut server = rt.block_on(WsServer::new("127.0.0.1:0")).unwrap();
-		let mut module = RpcModule::new(());
-		module.register_method("say_hello", |_, _| Ok("hello")).unwrap();
+		let mut module = RpcModule::new();
+		module.register_method("say_hello", Arc::new(()), |_, _| Ok("hello")).unwrap();
 
 		module
-			.register_subscription("subscribe_hello", "unsubscribe_hello", |_, sink, _| {
+			.register_subscription("subscribe_hello", "unsubscribe_hello", Arc::new(()), |_, sink, _| {
 				std::thread::spawn(move || loop {
 					let _ = sink.send(&"hello from subscription");
 					std::thread::sleep(Duration::from_millis(50));
@@ -55,7 +56,7 @@ pub async fn websocket_server_with_subscription() -> SocketAddr {
 			.unwrap();
 
 		module
-			.register_subscription("subscribe_foo", "unsubscribe_foo", |_, sink, _| {
+			.register_subscription("subscribe_foo", "unsubscribe_foo", Arc::new(()), |_, sink, _| {
 				std::thread::spawn(move || loop {
 					let _ = sink.send(&1337);
 					std::thread::sleep(Duration::from_millis(100));
@@ -65,7 +66,7 @@ pub async fn websocket_server_with_subscription() -> SocketAddr {
 			.unwrap();
 
 		module
-			.register_subscription("subscribe_add_one", "unsubscribe_add_one", |params, sink, _| {
+			.register_subscription("subscribe_add_one", "unsubscribe_add_one", Arc::new(()), |params, sink, _| {
 				let mut count: usize = params.one()?;
 				std::thread::spawn(move || loop {
 					count = count.wrapping_add(1);
@@ -94,8 +95,8 @@ pub async fn websocket_server() -> SocketAddr {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 
 		let mut server = rt.block_on(WsServer::new("127.0.0.1:0")).unwrap();
-		let mut module = RpcModule::new(());
-		module.register_method("say_hello", |_, _| Ok("hello")).unwrap();
+		let mut module = RpcModule::new();
+		module.register_method("say_hello", Arc::new(()), |_, _| Ok("hello")).unwrap();
 		server.register_module(module).unwrap();
 
 		rt.block_on(async move {
@@ -110,10 +111,10 @@ pub async fn websocket_server() -> SocketAddr {
 
 pub async fn http_server() -> SocketAddr {
 	let mut server = HttpServerBuilder::default().build("127.0.0.1:0".parse().unwrap()).unwrap();
-	let mut module = RpcModule::new(());
+	let mut module = RpcModule::new();
 	let addr = server.local_addr().unwrap();
-	module.register_method("say_hello", |_, _| Ok("hello")).unwrap();
-	module.register_method("notif", |_, _| Ok("")).unwrap();
+	module.register_method("say_hello", Arc::new(()), |_, _| Ok("hello")).unwrap();
+	module.register_method("notif", Arc::new(()), |_, _| Ok("")).unwrap();
 	server.register_module(module).unwrap();
 
 	tokio::spawn(async move { server.start().await.unwrap() });

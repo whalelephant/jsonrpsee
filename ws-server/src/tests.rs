@@ -8,6 +8,7 @@ use jsonrpsee_types::error::{CallError, Error};
 use serde_json::Value as JsonValue;
 use std::fmt;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 /// Applications can/should provide their own error.
 #[derive(Debug)]
@@ -23,24 +24,24 @@ impl std::error::Error for MyAppError {}
 /// It has two hardcoded methods: "say_hello" and "add"
 pub async fn server() -> SocketAddr {
 	let mut server = WsServer::new("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
-	let mut module = RpcModule::new(());
+	let mut module = RpcModule::new();
 	module
-		.register_method("say_hello", |_, _| {
+		.register_method("say_hello", Arc::new(()), |_, _| {
 			log::debug!("server respond to hello");
 			Ok("hello")
 		})
 		.unwrap();
 	module
-		.register_method("add", |params, _| {
+		.register_method("add", Arc::new(()), |params, _| {
 			let params: Vec<u64> = params.parse()?;
 			let sum: u64 = params.into_iter().sum();
 			Ok(sum)
 		})
 		.unwrap();
-	module.register_method("invalid_params", |_params, _| Err::<(), _>(CallError::InvalidParams)).unwrap();
-	module.register_method("call_fail", |_params, _| Err::<(), _>(CallError::Failed(Box::new(MyAppError)))).unwrap();
+	module.register_method("invalid_params", Arc::new(()), |_params, _| Err::<(), _>(CallError::InvalidParams)).unwrap();
+	module.register_method("call_fail", Arc::new(()), |_params, _| Err::<(), _>(CallError::Failed(Box::new(MyAppError)))).unwrap();
 	module
-		.register_method("sleep_for", |params, _| {
+		.register_method("sleep_for", Arc::new(()), |params, _| {
 			let sleep: Vec<u64> = params.parse()?;
 			std::thread::sleep(std::time::Duration::from_millis(sleep[0]));
 			Ok("Yawn!")
@@ -57,18 +58,18 @@ pub async fn server() -> SocketAddr {
 pub async fn server_with_context() -> SocketAddr {
 	let mut server = WsServer::new("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
 
-	let ctx = TestContext;
-	let mut rpc_module = RpcModule::new(ctx);
+	let ctx = Arc::new(TestContext);
+	let mut rpc_module = RpcModule::new();
 
 	rpc_module
-		.register_method("should_err", |_p, ctx| {
+		.register_method("should_err", ctx.clone(), |_p, ctx| {
 			let _ = ctx.err().map_err(|e| CallError::Failed(e.into()))?;
 			Ok("err")
 		})
 		.unwrap();
 
 	rpc_module
-		.register_method("should_ok", |_p, ctx| {
+		.register_method("should_ok", ctx.clone(), |_p, ctx| {
 			let _ = ctx.ok().map_err(|e| CallError::Failed(e.into()))?;
 			Ok("ok")
 		})
@@ -226,22 +227,22 @@ async fn invalid_request_object() {
 
 #[tokio::test]
 async fn register_methods_works() {
-	let mut module = RpcModule::new(());
-	assert!(module.register_method("say_hello", |_, _| Ok("lo")).is_ok());
-	assert!(module.register_method("say_hello", |_, _| Ok("lo")).is_err());
-	assert!(module.register_subscription("subscribe_hello", "unsubscribe_hello", |_, _, _| Ok(())).is_ok());
-	assert!(module.register_subscription("subscribe_hello_again", "unsubscribe_hello", |_, _, _| Ok(())).is_err());
+	let mut module = RpcModule::new();
+	assert!(module.register_method("say_hello", Arc::new(()), |_, _| Ok("lo")).is_ok());
+	assert!(module.register_method("say_hello", Arc::new(()), |_, _| Ok("lo")).is_err());
+	assert!(module.register_subscription("subscribe_hello", "unsubscribe_hello", Arc::new(()), |_, _, _| Ok(())).is_ok());
+	assert!(module.register_subscription("subscribe_hello_again", "unsubscribe_hello", Arc::new(()), |_, _, _| Ok(())).is_err());
 	assert!(
-		module.register_method("subscribe_hello_again", |_, _| Ok("lo")).is_ok(),
+		module.register_method("subscribe_hello_again", Arc::new(()), |_, _| Ok("lo")).is_ok(),
 		"Failed register_subscription should not have side-effects"
 	);
 }
 
 #[tokio::test]
 async fn register_same_subscribe_unsubscribe_is_err() {
-	let mut module = RpcModule::new(());
+	let mut module = RpcModule::new();
 	assert!(matches!(
-		module.register_subscription("subscribe_hello", "subscribe_hello", |_, _, _| Ok(())),
+		module.register_subscription("subscribe_hello", "subscribe_hello", Arc::new(()), |_, _, _| Ok(())),
 		Err(Error::SubscriptionNameConflict(_))
 	));
 }

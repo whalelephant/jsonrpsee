@@ -29,6 +29,7 @@ use jsonrpsee::{
 	http_server::{HttpServerBuilder, RpcModule},
 };
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,8 +49,8 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_server() -> anyhow::Result<SocketAddr> {
 	let mut server = HttpServerBuilder::default().build("127.0.0.1:0".parse()?)?;
-	let mut module = RpcModule::new(());
-	module.register_method("say_hello", |_, _| Ok("lo"))?;
+	let mut module = RpcModule::new();
+	module.register_method("say_hello", Arc::new(()), |_, _| Ok("lo"))?;
 	server.register_module(module).unwrap();
 
 	let addr = server.local_addr()?;

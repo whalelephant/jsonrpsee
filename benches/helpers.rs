@@ -10,7 +10,7 @@ pub async fn http_server() -> String {
 	tokio::spawn(async move {
 		let mut server =
 			HttpServerBuilder::default().max_request_body_size(u32::MAX).build("127.0.0.1:0".parse().unwrap()).unwrap();
-		let mut module = RpcModule::new(());
+		let mut module = RpcModule::new();
 		module.register_method("say_hello", |_, _| Ok("lo")).unwrap();
 		server.register_module(module).unwrap();
 		server_started_tx.send(server.local_addr().unwrap()).unwrap();
@@ -24,7 +24,7 @@ pub async fn ws_server() -> String {
 	let (server_started_tx, server_started_rx) = oneshot::channel();
 	tokio::spawn(async move {
 		let mut server = WsServer::new("127.0.0.1:0").await.unwrap();
-		let mut module = RpcModule::new(());
+		let mut module = RpcModule::new();
 		module.register_method("say_hello", |_, _| Ok("lo")).unwrap();
 		server.register_module(module).unwrap();
 		server_started_tx.send(server.local_addr().unwrap()).unwrap();

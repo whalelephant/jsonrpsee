@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_server() -> anyhow::Result<SocketAddr> {
 	let mut server = HttpServerBuilder::default().build("127.0.0.1:0".parse()?)?;
-	let mut module = RpcModule::new(());
+	let mut module = RpcModule::new();
 	module.register_method("state_getPairs", |_, _| Ok(vec![1, 2, 3]))?;
 	server.register_module(module).unwrap();
 

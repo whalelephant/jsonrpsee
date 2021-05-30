@@ -31,16 +31,17 @@ type Subscribers = Arc<Mutex<FxHashMap<(ConnectionId, SubscriptionId), (MethodSi
 /// Sets of JSON-RPC methods can be organized into a "module"s that are in turn registered on the server or,
 /// alternatively, merged with other modules to construct a cohesive API. [`RpcModule`] wraps an additional context
 /// argument that can be used to access data during call execution.
-pub struct RpcModule<Context> {
-	ctx: Arc<Context>,
+pub struct RpcModule {
+	// ctx: Arc<Context>,
 	methods: Methods,
 	subscribers: Subscribers,
 }
 
-impl<Context> RpcModule<Context> {
+// impl<Context> RpcModule<Context> {
+impl RpcModule {
 	/// Create a new module with a given shared `Context`.
-	pub fn new(ctx: Context) -> Self {
-		Self { ctx: Arc::new(ctx), methods: Methods::default(), subscribers: Subscribers::default() }
+	pub fn new() -> Self {
+		Self { methods: Methods::default(), subscribers: Subscribers::default() }
 	}
 
 	fn verify_method_name(&mut self, name: &str) -> Result<(), Error> {
@@ -52,7 +53,7 @@ impl<Context> RpcModule<Context> {
 	}
 
 	/// Register a new RPC method, which responds with a given callback.
-	pub fn register_method<R, F>(&mut self, method_name: &'static str, callback: F) -> Result<(), Error>
+	pub fn register_method<R, F, Context>(&mut self, method_name: &'static str, ctx: Arc<Context>, callback: F) -> Result<(), Error>
 	where
 		Context: Send + Sync + 'static,
 		R: Serialize,
@@ -60,7 +61,7 @@ impl<Context> RpcModule<Context> {
 	{
 		self.verify_method_name(method_name)?;
 
-		let ctx = self.ctx.clone();
+		let ctx = ctx.clone();
 
 		self.methods.insert(
 			method_name,
@@ -106,10 +107,11 @@ impl<Context> RpcModule<Context> {
 	///     Ok(())
 	/// });
 	/// ```
-	pub fn register_subscription<F>(
+	pub fn register_subscription<F, Context>(
 		&mut self,
 		subscribe_method_name: &'static str,
 		unsubscribe_method_name: &'static str,
+		ctx: Arc<Context>,
 		callback: F,
 	) -> Result<(), Error>
 	where
@@ -122,7 +124,7 @@ impl<Context> RpcModule<Context> {
 
 		self.verify_method_name(subscribe_method_name)?;
 		self.verify_method_name(unsubscribe_method_name)?;
-		let ctx = self.ctx.clone();
+		let ctx = ctx.clone();
 
 		{
 			let subscribers = self.subscribers.clone();
@@ -176,7 +178,7 @@ impl<Context> RpcModule<Context> {
 
 	/// Merge two [`RpcModule`]'s by adding all [`Method`]s from `other` into `self`.
 	/// Fails if any of the methods in `other` is present already.
-	pub fn merge<Context2>(&mut self, other: RpcModule<Context2>) -> Result<(), Error> {
+	pub fn merge(&mut self, other: RpcModule) -> Result<(), Error> {
 		for name in other.methods.keys() {
 			self.verify_method_name(name)?;
 		}
@@ -195,7 +197,7 @@ pub struct SubscriptionSink {
 	inner: mpsc::UnboundedSender<String>,
 	/// Method.
 	method: &'static str,
-	/// SubscriptionID,
+	/// SubscriptionID.
 	sub_id: SubscriptionId,
 	/// Whether the subscriber is still alive (to avoid send messages that the subscriber is not interested in).
 	is_online: oneshot::Sender<()>,
@@ -236,11 +238,12 @@ mod tests {
 	use super::*;
 	#[test]
 	fn rpc_modules_with_different_contexts_can_be_merged() {
-		let cx = Vec::<u8>::new();
-		let mut mod1 = RpcModule::new(cx);
-		mod1.register_method("bla with Vec context", |_: RpcParams, _| Ok(())).unwrap();
-		let mut mod2 = RpcModule::new(String::new());
-		mod2.register_method("bla with String context", |_: RpcParams, _| Ok(())).unwrap();
+		let cx = Arc::new(Vec::<u8>::new());
+		let mut mod1 = RpcModule::new();
+		mod1.register_method("bla with Vec context", cx, |_: RpcParams, _| Ok(())).unwrap();
+		let mut mod2 = RpcModule::new();
+		let cx2 = Arc::new(String::new());
+		mod2.register_method("bla with String context", cx2, |_: RpcParams, _| Ok(())).unwrap();
 
 		mod1.merge(mod2).unwrap();
 		let mut methods = mod1.into_methods().keys().cloned().collect::<Vec<&str>>();
@@ -250,9 +253,8 @@ mod tests {
 
 	#[test]
 	fn rpc_context_modules_can_register_subscriptions() {
-		let cx = ();
-		let mut cxmodule = RpcModule::new(cx);
-		let _subscription = cxmodule.register_subscription("hi", "goodbye", |_, _, _| Ok(()));
+		let mut cxmodule = RpcModule::new();
+		let _subscription = cxmodule.register_subscription("hi", "goodbye",Arc::new(()),  |_, _, _| Ok(()));
 
 		let methods = cxmodule.into_methods().keys().cloned().collect::<Vec<&str>>();
 		assert!(methods.contains(&"hi"));

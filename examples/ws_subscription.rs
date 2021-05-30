@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run_server() -> anyhow::Result<SocketAddr> {
 	let mut server = WsServer::new("127.0.0.1:0").await?;
-	let mut module = RpcModule::new(());
+	let mut module = RpcModule::new();
 	module.register_subscription("subscribe_hello", "unsubscribe_hello", |_, sink, _| {
 		std::thread::spawn(move || loop {
 			sink.send(&"hello my friend").unwrap();
