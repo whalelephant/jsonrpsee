@@ -39,3 +39,7 @@ path = "proc_macro.rs"
 [[example]]
 name = "weather"
 path = "weather.rs"
+
+[[example]]
+name = "substrate_test"
+path = "substrate_test.rs"
