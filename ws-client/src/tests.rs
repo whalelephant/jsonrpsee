@@ -6,12 +6,14 @@ use crate::v2::{
 };
 use crate::{
 	traits::{Client, SubscriptionClient},
-	Error, NotificationHandler, Subscription, WsClientBuilder,
+	Error, Subscription, WsClientBuilder,
 };
 use jsonrpsee_test_utils::helpers::*;
 use jsonrpsee_test_utils::types::{Id, WebSocketTestServer};
 use jsonrpsee_test_utils::TimeoutFutureExt;
 use serde_json::Value as JsonValue;
+
+use crate::tokio;
 
 #[tokio::test]
 async fn method_call_works() {
@@ -98,7 +100,7 @@ async fn subscription_works() {
 			.await
 			.unwrap()
 			.unwrap();
-		let response: String = sub.next().with_default_timeout().await.unwrap().unwrap();
+		let response: String = sub.next().with_default_timeout().await.unwrap().unwrap().unwrap();
 		assert_eq!("hello my friend".to_owned(), response);
 	}
 }
@@ -116,9 +118,9 @@ async fn notification_handler_works() {
 	let uri = to_ws_uri_string(server.local_addr());
 	let client = WsClientBuilder::default().build(&uri).with_default_timeout().await.unwrap().unwrap();
 	{
-		let mut nh: NotificationHandler<String> =
-			client.register_notification("test").with_default_timeout().await.unwrap().unwrap();
-		let response: String = nh.next().with_default_timeout().await.unwrap().unwrap();
+		let mut nh: Subscription<String> =
+			client.subscribe_to_method("test").with_default_timeout().await.unwrap().unwrap();
+		let response: String = nh.next().with_default_timeout().await.unwrap().unwrap().unwrap();
 		assert_eq!("server originated notification works".to_owned(), response);
 	}
 }
@@ -141,8 +143,8 @@ async fn notification_without_polling_doesnt_make_client_unuseable() {
 		.await
 		.unwrap()
 		.unwrap();
-	let mut nh: NotificationHandler<String> =
-		client.register_notification("test").with_default_timeout().await.unwrap().unwrap();
+	let mut nh: Subscription<String> =
+		client.subscribe_to_method("test").with_default_timeout().await.unwrap().unwrap();
 
 	// don't poll the notification stream for 2 seconds, should be full now.
 	std::thread::sleep(std::time::Duration::from_secs(2));
@@ -156,8 +158,8 @@ async fn notification_without_polling_doesnt_make_client_unuseable() {
 	assert!(nh.next().with_default_timeout().await.unwrap().unwrap().is_none());
 
 	// The same subscription should be possible to register again.
-	let mut other_nh: NotificationHandler<String> =
-		client.register_notification("test").with_default_timeout().await.unwrap().unwrap();
+	let mut other_nh: Subscription<String> =
+		client.subscribe_to_method("test").with_default_timeout().await.unwrap().unwrap();
 
 	// check that the new subscription works.
 	assert!(other_nh.next().with_default_timeout().await.unwrap().unwrap().is_some());

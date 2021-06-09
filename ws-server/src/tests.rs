@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::{RpcModule, WsServer};
+use crate::{RpcModule, WsServerBuilder};
 use futures_util::FutureExt;
 use jsonrpsee_test_utils::helpers::*;
 use jsonrpsee_test_utils::types::{Id, TestContext, WebSocketTestClient};
@@ -25,8 +25,8 @@ impl std::error::Error for MyAppError {}
 
 /// Spawns a dummy `JSONRPC v2 WebSocket`
 /// It has two hardcoded methods: "say_hello" and "add"
-pub async fn server() -> SocketAddr {
-	let mut server = WsServer::new("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
+async fn server() -> SocketAddr {
+	let mut server = WsServerBuilder::default().build("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
 	let mut module = RpcModule::new(());
 	module
 		.register_method("say_hello", |_, _| {
@@ -69,8 +69,8 @@ pub async fn server() -> SocketAddr {
 }
 
 /// Run server with user provided context.
-pub async fn server_with_context() -> SocketAddr {
-	let mut server = WsServer::new("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
+async fn server_with_context() -> SocketAddr {
+	let mut server = WsServerBuilder::default().build("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
 
 	let ctx = TestContext;
 	let mut rpc_module = RpcModule::new(ctx);
@@ -94,8 +94,18 @@ pub async fn server_with_context() -> SocketAddr {
 			async move {
 				let _ = ctx.ok().map_err(|e| CallError::Failed(e.into()))?;
 				// Call some async function inside.
-				futures_util::future::ready(()).await;
-				Ok("ok")
+				Ok(futures_util::future::ready("ok!").await)
+			}
+			.boxed()
+		})
+		.unwrap();
+
+	rpc_module
+		.register_async_method("err_async", |_p, ctx| {
+			async move {
+				let _ = ctx.ok().map_err(|e| CallError::Failed(e.into()))?;
+				// Async work that returns an error
+				futures_util::future::err::<(), CallError>(CallError::Failed(String::from("nah").into())).await
 			}
 			.boxed()
 		})
@@ -106,6 +116,61 @@ pub async fn server_with_context() -> SocketAddr {
 
 	tokio::spawn(async { server.start().await });
 	addr
+}
+
+#[tokio::test]
+async fn can_set_the_max_request_body_size() {
+	let addr = "127.0.0.1:0";
+	// Rejects all requests larger than 10 bytes
+	let mut server = WsServerBuilder::default().max_request_body_size(10).build(addr).await.unwrap();
+	let mut module = RpcModule::new(());
+	module.register_method("anything", |_p, _cx| Ok(())).unwrap();
+	server.register_module(module).unwrap();
+	let addr = server.local_addr().unwrap();
+	tokio::spawn(async { server.start().await });
+
+	let mut client = WebSocketTestClient::new(addr).await.unwrap();
+
+	// Invalid: too long
+	let req = "any string longer than 10 bytes";
+	let response = client.send_request_text(req).await.unwrap();
+	assert_eq!(response, oversized_request());
+
+	// Still invalid, but not oversized
+	let req = "shorty";
+	let response = client.send_request_text(req).await.unwrap();
+	assert_eq!(response, parse_error(Id::Null));
+}
+
+#[tokio::test]
+async fn can_set_max_connections() {
+	let addr = "127.0.0.1:0";
+	// Server that accepts max 2 connections
+	let mut server = WsServerBuilder::default().max_connections(2).build(addr).await.unwrap();
+	let mut module = RpcModule::new(());
+	module.register_method("anything", |_p, _cx| Ok(())).unwrap();
+	server.register_module(module).unwrap();
+	let addr = server.local_addr().unwrap();
+
+	tokio::spawn(async { server.start().await });
+
+	let conn1 = WebSocketTestClient::new(addr).await;
+	let conn2 = WebSocketTestClient::new(addr).await;
+	let conn3 = WebSocketTestClient::new(addr).await;
+	assert!(conn1.is_ok());
+	assert!(conn2.is_ok());
+	// Third connection is rejected
+	assert!(conn3.is_err());
+	let err = conn3.unwrap_err();
+	assert!(err.to_string().contains("WebSocketHandshake failed"));
+	assert!(err.to_string().contains("Connection reset by peer"));
+	// Err(Io(Os { code: 54, kind: ConnectionReset, message: \"Connection reset by peer\" }))");
+
+	// Decrement connection count
+	drop(conn2);
+	// Can connect again
+	let conn4 = WebSocketTestClient::new(addr).await;
+	assert!(conn4.is_ok());
 }
 
 #[tokio::test]
@@ -210,7 +275,7 @@ async fn single_method_call_with_faulty_context() {
 
 	let req = r#"{"jsonrpc":"2.0","method":"should_err", "params":[],"id":1}"#;
 	let response = client.send_request_text(req).with_default_timeout().await.unwrap().unwrap();
-	assert_eq!(response, invalid_context("RPC context failed", Id::Num(1)));
+	assert_eq!(response, call_execution_failed("RPC context failed", Id::Num(1)));
 }
 
 #[tokio::test]
@@ -230,7 +295,17 @@ async fn async_method_call_with_ok_context() {
 
 	let req = r#"{"jsonrpc":"2.0","method":"should_ok_async", "params":[],"id":1}"#;
 	let response = client.send_request_text(req).await.unwrap();
-	assert_eq!(response, ok_response("ok".into(), Id::Num(1)));
+	assert_eq!(response, ok_response("ok!".into(), Id::Num(1)));
+}
+
+#[tokio::test]
+async fn async_method_call_that_fails() {
+	let addr = server_with_context().await;
+	let mut client = WebSocketTestClient::new(addr).await.unwrap();
+
+	let req = r#"{"jsonrpc":"2.0","method":"err_async", "params":[],"id":1}"#;
+	let response = client.send_request_text(req).await.unwrap();
+	assert_eq!(response, call_execution_failed("nah".into(), Id::Num(1)));
 }
 
 #[tokio::test]
@@ -351,7 +426,7 @@ async fn can_register_modules() {
 	let cx2 = Vec::<u8>::new();
 	let mut mod2 = RpcModule::new(cx2);
 
-	let mut server = WsServer::new("127.0.0.1:0").with_default_timeout().await.unwrap().unwrap();
+	let mut server = WsServerBuilder::default().build("127.0.0.1:0").await.unwrap();
 	assert_eq!(server.method_names().len(), 0);
 	mod1.register_method("bla", |_, cx| Ok(format!("Gave me {}", cx))).unwrap();
 	mod1.register_method("bla2", |_, cx| Ok(format!("Gave me {}", cx))).unwrap();

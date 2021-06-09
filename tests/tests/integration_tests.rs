@@ -25,6 +25,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 #![cfg(test)]
+#![allow(clippy::blacklisted_name)]
 
 mod helpers;
 
@@ -49,8 +50,8 @@ async fn ws_subscription_works() {
 	for _ in 0..10 {
 		let hello = hello_sub.next().await.unwrap();
 		let foo = foo_sub.next().await.unwrap();
-		assert_eq!(&hello, "hello from subscription");
-		assert_eq!(foo, 1337);
+		assert_eq!(hello, Some("hello from subscription".into()));
+		assert_eq!(foo, Some(1337));
 	}
 }
 
@@ -63,7 +64,7 @@ async fn ws_subscription_with_input_works() {
 		client.subscribe("subscribe_add_one", vec![1.into()].into(), "unsubscribe_add_one").await.unwrap();
 
 	for i in 2..4 {
-		let next = add_one.next().await.unwrap();
+		let next = add_one.next().await.unwrap().unwrap();
 		assert_eq!(next, i);
 	}
 }
@@ -120,8 +121,8 @@ async fn ws_subscription_several_clients_with_drop() {
 
 	for _ in 0..10 {
 		for (_client, hello_sub, foo_sub) in &mut clients {
-			let hello = hello_sub.next().await.unwrap();
-			let foo = foo_sub.next().await.unwrap();
+			let hello = hello_sub.next().await.unwrap().unwrap();
+			let foo = foo_sub.next().await.unwrap().unwrap();
 			assert_eq!(&hello, "hello from subscription");
 			assert_eq!(foo, 1337);
 		}
@@ -142,8 +143,8 @@ async fn ws_subscription_several_clients_with_drop() {
 	// this layer.
 	for _ in 0..10 {
 		for (_client, hello_sub, foo_sub) in &mut clients {
-			let hello = hello_sub.next().await.unwrap();
-			let foo = foo_sub.next().await.unwrap();
+			let hello = hello_sub.next().await.unwrap().unwrap();
+			let foo = foo_sub.next().await.unwrap().unwrap();
 			assert_eq!(&hello, "hello from subscription");
 			assert_eq!(foo, 1337);
 		}
@@ -160,15 +161,15 @@ async fn ws_subscription_without_polling_doesnt_make_client_unuseable() {
 		client.subscribe("subscribe_hello", JsonRpcParams::NoParams, "unsubscribe_hello").await.unwrap();
 
 	// don't poll the subscription stream for 2 seconds, should be full now.
-	std::thread::sleep(Duration::from_secs(2));
+	tokio::time::sleep(Duration::from_secs(2)).await;
 
 	// Capacity is `num_sender` + `capacity`
 	for _ in 0..5 {
-		assert!(hello_sub.next().await.is_some());
+		assert!(hello_sub.next().await.unwrap().is_some());
 	}
 
 	// NOTE: this is now unuseable and unregistered.
-	assert!(hello_sub.next().await.is_none());
+	assert!(hello_sub.next().await.unwrap().is_none());
 
 	// The client should still be useable => make sure it still works.
 	let _hello_req: JsonValue = client.request("say_hello", JsonRpcParams::NoParams).await.unwrap();
@@ -239,4 +240,19 @@ async fn ws_unsubscribe_releases_request_slots() {
 	drop(sub1);
 	let _: Subscription<JsonValue> =
 		client.subscribe("subscribe_hello", JsonRpcParams::NoParams, "unsubscribe_hello").await.unwrap();
+}
+
+#[tokio::test]
+async fn server_should_be_able_to_close_subscriptions() {
+	let server_addr = websocket_server_with_subscription().await;
+	let server_url = format!("ws://{}", server_addr);
+
+	let client = WsClientBuilder::default().build(&server_url).await.unwrap();
+
+	let mut sub: Subscription<String> =
+		client.subscribe("subscribe_noop", JsonRpcParams::NoParams, "unsubscribe_noop").await.unwrap();
+
+	let res = sub.next().await;
+
+	assert!(matches!(res, Err(Error::SubscriptionClosed(_))));
 }

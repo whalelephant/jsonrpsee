@@ -33,7 +33,7 @@
 use jsonrpsee::{
 	ws_client::{traits::SubscriptionClient, v2::params::JsonRpcParams, WsClientBuilder},
 	ws_server::RpcModule,
-	ws_server::WsServer,
+	ws_server::WsServerBuilder,
 };
 use restson::{Error as RestsonError, RestPath};
 use serde::{Deserialize, Serialize};
@@ -68,8 +68,8 @@ struct Wind {
 impl RestPath<&(String, String)> for Weather {
 	fn get_path(params: &(String, String)) -> Result<String, RestsonError> {
 		// Set up your own API key at https://openweathermap.org/current
-		const API_KEY: &'static str = "f6ba475df300d5f91135550da0f4a867";
-		Ok(String::from(format!("data/2.5/weather?q={}&units={}&appid={}", params.0, params.1, API_KEY,)))
+		const API_KEY: &str = "f6ba475df300d5f91135550da0f4a867";
+		Ok(format!("data/2.5/weather?q={}&units={}&appid={}", params.0, params.1, API_KEY,))
 	}
 }
 
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
 	// Subscription to the London weather
 	let params = JsonRpcParams::Array(vec!["London,uk".into(), "metric".into()]);
 	let mut weather_sub = client.subscribe::<Weather>("weather_sub", params, "weather_unsub").await?;
-	while let Some(w) = weather_sub.next().await {
+	while let Ok(Some(w)) = weather_sub.next().await {
 		println!("[client] London weather: {:?}", w);
 	}
 
@@ -99,14 +99,14 @@ struct WeatherApiCx {
 }
 
 async fn run_server() -> anyhow::Result<SocketAddr> {
-	let mut server = WsServer::new("127.0.0.1:0").await?;
+	let mut server = WsServerBuilder::default().build("127.0.0.1:0").await?;
 
 	let api_client = restson::RestClient::new("http://api.openweathermap.org").unwrap();
 	let last_weather = Weather::default();
 	let cx = Mutex::new(WeatherApiCx { api_client, last_weather });
 	let mut module = RpcModule::new(cx);
 	module
-		.register_subscription("weather_sub", "weather_unsub", |params, sink, cx| {
+		.register_subscription("weather_sub", "weather_unsub", |params, mut sink, cx| {
 			let params: (String, String) = params.parse()?;
 			log::debug!(target: "server", "Subscribed with params={:?}", params);
 			std::thread::spawn(move || loop {

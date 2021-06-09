@@ -43,6 +43,10 @@ pub fn parse_error(id: Id) -> String {
 	)
 }
 
+pub fn oversized_request() -> String {
+	r#"{"jsonrpc":"2.0","error":{"code":-32701,"message":"Request is too big"},"id":null}"#.into()
+}
+
 pub fn invalid_request(id: Id) -> String {
 	format!(
 		r#"{{"jsonrpc":"2.0","error":{{"code":-32600,"message":"Invalid request"}},"id":{}}}"#,
@@ -57,7 +61,7 @@ pub fn invalid_params(id: Id) -> String {
 	)
 }
 
-pub fn invalid_context(msg: &str, id: Id) -> String {
+pub fn call_execution_failed(msg: &str, id: Id) -> String {
 	format!(
 		r#"{{"jsonrpc":"2.0","error":{{"code":-32000,"message":"{}"}},"id":{}}}"#,
 		msg,

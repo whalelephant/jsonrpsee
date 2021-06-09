@@ -1,6 +1,6 @@
 [package]
 name = "jsonrpsee-test-utils"
-version = "0.2.0-alpha.7"
+version = "0.2.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "MIT"
 edition = "2018"
@@ -8,7 +8,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = "1"
 anyhow = "1"
 futures-channel = "0.3.14"
 futures-util = "0.3.14"
