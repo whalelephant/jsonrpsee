@@ -31,7 +31,7 @@ enum NotifResponse<Notif> {
 #[derive(Debug)]
 pub struct Subscription<Notif> {
 	/// Channel to send requests to the background task.
-	to_back: mpsc::Sender<FrontToBack>,
+	to_back: Option<mpsc::Sender<FrontToBack>>,
 	/// Channel from which we receive notifications from the server, as encoded `JsonValue`s.
 	notifs_rx: mpsc::Receiver<JsonValue>,
 	/// Callback kind.
@@ -47,7 +47,7 @@ impl<Notif> Subscription<Notif> {
 		notifs_rx: mpsc::Receiver<JsonValue>,
 		kind: SubscriptionKind,
 	) -> Self {
-		Self { to_back, notifs_rx, kind, marker: PhantomData }
+		Self { to_back: Some(to_back), notifs_rx, kind, marker: PhantomData }
 	}
 }
 
@@ -132,6 +132,11 @@ where
 	/// This may return `Ok(None)` if the subscription has been terminated,
 	/// may happen if the channel becomes full or is dropped.
 	pub async fn next(&mut self) -> Result<Option<Notif>, Error> {
+		if self.to_back.as_ref().map_or(true, |b| b.is_closed()) {
+			self.to_back = None;
+			return Ok(None)
+		};
+
 		match self.notifs_rx.next().await {
 			Some(n) => match serde_json::from_value::<NotifResponse<Notif>>(n) {
 				Ok(NotifResponse::Ok(parsed)) => Ok(Some(parsed)),
