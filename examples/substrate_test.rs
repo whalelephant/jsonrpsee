@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
 
 	let keys = vec![StorageKey(well_known_keys::EXTRINSIC_INDEX.to_vec())];
 
-	start_sub(&client, "chain_subscribeNewHeads", JsonRpcParams::NoParams, "chain_unsubscribeNewHeads", 3).await;
+	start_sub(&client, "chain_subscribeNewHead", JsonRpcParams::NoParams, "chain_unsubscribeNewHead", 3).await;
 	start_sub(&client, "chain_subscribeAllHeads", JsonRpcParams::NoParams, "chain_unsubscribeAllHeads", 3).await;
 	start_sub(&client, "chain_subscribeFinalizedHeads", JsonRpcParams::NoParams, "chain_unsubscribeFinalizedHeads", 3)
 		.await;
