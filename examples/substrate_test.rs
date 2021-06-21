@@ -35,7 +35,7 @@ const XT: &str = "0xe923f1ba03d2f40ea30743f7fbee384652c5e8459e64e06bf6248c5608ef
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
 	env_logger::init();
-	let client = WsClientBuilder::default().build("ws://127.0.0.1:9945").await?;
+	let client = WsClientBuilder::default().build("ws://127.0.0.1:9944").await?;
 
 	let keys = vec![StorageKey(well_known_keys::EXTRINSIC_INDEX.to_vec())];
 
