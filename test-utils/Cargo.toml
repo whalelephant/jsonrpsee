@@ -9,8 +9,8 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-futures-channel = "0.3.14"
-futures-util = "0.3.14"
+futures-channel = "0.3.13"
+futures-util = "0.3.13"
 hyper = { version = "0.14", features = ["full"] }
 log = "0.4"
 serde = { version = "1", default-features = false, features = ["derive"] }
