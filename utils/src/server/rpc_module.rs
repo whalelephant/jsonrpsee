@@ -418,8 +418,8 @@ impl SubscriptionSink {
 			jsonrpc: TwoPointZero,
 			method: self.method,
 			params: JsonRpcSubscriptionParams {
-				subscription: JsonRpcSubscriptionId::Num(self.uniq_sub.sub_id),
 				result,
+				subscription: JsonRpcSubscriptionId::Str("p6UkP7N5Sq5SiM6J".to_string()),
 			},
 		})
 		.map_err(Into::into)
