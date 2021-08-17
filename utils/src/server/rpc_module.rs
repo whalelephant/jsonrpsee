@@ -32,14 +32,14 @@ pub type AsyncMethod = Arc<
 /// For stateless protocols such as http it's unused, so feel free to set it some hardcoded value.
 pub type ConnectionId = usize;
 /// Subscription ID.
-pub type SubscriptionId = u64;
+pub type SubscriptionId = String;
 /// Sink that is used to send back the result to the server for a specific method.
 pub type MethodSink = mpsc::UnboundedSender<String>;
 
 type Subscribers = Arc<Mutex<FxHashMap<SubscriptionKey, (MethodSink, oneshot::Receiver<()>)>>>;
 
 /// Represent a unique subscription entry based on [`SubscriptionId`] and [`ConnectionId`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct SubscriptionKey {
 	conn_id: ConnectionId,
 	sub_id: SubscriptionId,
@@ -337,15 +337,15 @@ impl<Context: Send + Sync + 'static> RpcModule<Context> {
 					let sub_id = {
 						// const JS_NUM_MASK: SubscriptionId = !0 >> 11;
 						// let sub_id = rand::random::<SubscriptionId>() & JS_NUM_MASK;
-						let sub_id = 0;
-						let uniq_sub = SubscriptionKey { conn_id, sub_id };
+						let sub_id = random_id();
+						let uniq_sub = SubscriptionKey { conn_id, sub_id: sub_id.clone() };
 
 						subscribers.lock().insert(uniq_sub, (method_sink.clone(), conn_rx));
 
 						sub_id
 					};
 
-					send_response(id, method_sink, sub_id);
+					send_response(id, method_sink, sub_id.clone());
 					let sink = SubscriptionSink {
 						inner: method_sink.clone(),
 						method: subscribe_method_name,
@@ -419,7 +419,7 @@ impl SubscriptionSink {
 			method: self.method,
 			params: JsonRpcSubscriptionParams {
 				result,
-				subscription: JsonRpcSubscriptionId::Str("p6UkP7N5Sq5SiM6J".to_string()),
+				subscription: JsonRpcSubscriptionId::Str(self.uniq_sub.sub_id.clone()),
 			},
 		})
 		.map_err(Into::into)
@@ -429,12 +429,12 @@ impl SubscriptionSink {
 		let res = if let Some(conn) = self.is_connected.as_ref() {
 			if !conn.is_canceled() {
 				// unbounded send only fails if the receiver has been dropped.
-				self.inner.unbounded_send(msg).map_err(|_| subscription_closed_err(self.uniq_sub.sub_id))
+				self.inner.unbounded_send(msg).map_err(|_| subscription_closed_err(self.uniq_sub.sub_id.clone()))
 			} else {
-				Err(subscription_closed_err(self.uniq_sub.sub_id))
+				Err(subscription_closed_err(self.uniq_sub.sub_id.clone()))
 			}
 		} else {
-			Err(subscription_closed_err(self.uniq_sub.sub_id))
+			Err(subscription_closed_err(self.uniq_sub.sub_id.clone()))
 		};
 
 		if let Err(e) = &res {
@@ -461,8 +461,25 @@ impl Drop for SubscriptionSink {
 	}
 }
 
-fn subscription_closed_err(sub_id: u64) -> Error {
+fn subscription_closed_err(sub_id: String) -> Error {
 	Error::SubscriptionClosed(format!("Subscription {} is closed but not yet dropped", sub_id).into())
+}
+
+fn random_id() -> String {
+	use rand::Rng;
+
+	const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                            abcdefghijklmnopqrstuvwxyz\
+                            0123456789";
+	const ID_LEN: usize = 16;
+	let mut rng = rand::thread_rng();
+
+	(0..ID_LEN)
+		.map(|_| {
+			let idx = rng.gen_range(0..CHARSET.len());
+			CHARSET[idx] as char
+		})
+		.collect()
 }
 
 #[cfg(test)]
