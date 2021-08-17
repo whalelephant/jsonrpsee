@@ -10,10 +10,10 @@ use std::fmt;
 /// JSON-RPC parameter values for subscriptions.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsonRpcSubscriptionParams<T> {
-	/// Subscription ID
-	pub subscription: SubscriptionId,
 	/// Result.
 	pub result: T,
+	/// Subscription ID
+	pub subscription: SubscriptionId,
 }
 
 /// JSON-RPC v2 marker type.

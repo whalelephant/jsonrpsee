@@ -335,8 +335,9 @@ impl<Context: Send + Sync + 'static> RpcModule<Context> {
 				MethodCallback::Sync(Arc::new(move |id, params, method_sink, conn_id| {
 					let (conn_tx, conn_rx) = oneshot::channel::<()>();
 					let sub_id = {
-						const JS_NUM_MASK: SubscriptionId = !0 >> 11;
-						let sub_id = rand::random::<SubscriptionId>() & JS_NUM_MASK;
+						// const JS_NUM_MASK: SubscriptionId = !0 >> 11;
+						// let sub_id = rand::random::<SubscriptionId>() & JS_NUM_MASK;
+						let sub_id = 0;
 						let uniq_sub = SubscriptionKey { conn_id, sub_id };
 
 						subscribers.lock().insert(uniq_sub, (method_sink.clone(), conn_rx));
