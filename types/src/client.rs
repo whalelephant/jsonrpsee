@@ -249,10 +249,8 @@ impl<T> SubscriptionSinkWithTrace<T> {
 	///
 	pub async fn send(&mut self, msg: T) -> Result<(), mpsc::SendError> {
 		log::debug!("{:?}", self);
-		self.inner.send(msg).await.map(|res| {
-			self.trace.used_capacity.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-			res
-		})
+		// NOTE(niklasad1): we don't count this as it will wait until it's sent.
+		self.inner.send(msg).await
 	}
 }
 
