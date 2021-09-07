@@ -245,13 +245,6 @@ impl<T> SubscriptionSinkWithTrace<T> {
 			res
 		})
 	}
-
-	///
-	pub async fn send(&mut self, msg: T) -> Result<(), mpsc::SendError> {
-		log::debug!("{:?}", self);
-		// NOTE(niklasad1): we don't count this as it will wait until it's sent.
-		self.inner.send(msg).await
-	}
 }
 
 /// Create a `mpsc channel` with additional debugging info.
