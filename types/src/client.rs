@@ -59,7 +59,7 @@ enum NotifResponse<Notif> {
 #[derive(Debug)]
 pub struct Subscription<Notif> {
 	/// Channel to send requests to the background task.
-	to_back: SubscriptionSinkWithTrace<FrontToBack>,
+	to_back: mpsc::Sender<FrontToBack>,
 	/// Channel from which we receive notifications from the server, as encoded `JsonValue`s.
 	notifs_rx: SubscriptionStreamWithTrace<JsonValue>,
 	/// Callback kind.
@@ -71,7 +71,7 @@ pub struct Subscription<Notif> {
 impl<Notif> Subscription<Notif> {
 	/// Create a new subscription.
 	pub fn new(
-		to_back: SubscriptionSinkWithTrace<FrontToBack>,
+		to_back: mpsc::Sender<FrontToBack>,
 		notifs_rx: SubscriptionStreamWithTrace<JsonValue>,
 		kind: SubscriptionKind,
 	) -> Self {
@@ -126,7 +126,7 @@ pub struct RegisterNotificationMessage {
 	/// We return a [`mpsc::Receiver`] that will receive notifications.
 	/// When we get a response from the server about that subscription, we send the result over
 	/// this channel.
-	pub send_back: oneshot::Sender<Result<(mpsc::Receiver<JsonValue>, String), Error>>,
+	pub send_back: oneshot::Sender<Result<(SubscriptionStreamWithTrace<JsonValue>, String), Error>>,
 }
 
 /// Message that the Client can send to the background task.
@@ -241,6 +241,15 @@ impl<T> SubscriptionSinkWithTrace<T> {
 	pub fn try_send(&mut self, msg: T) -> Result<(), mpsc::TrySendError<T>> {
 		log::debug!("{:?}", self);
 		self.inner.try_send(msg).map(|res| {
+			self.trace.used_capacity.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+			res
+		})
+	}
+
+	///
+	pub async fn send(&mut self, msg: T) -> Result<(), mpsc::SendError> {
+		log::debug!("{:?}", self);
+		self.inner.send(msg).await.map(|res| {
 			self.trace.used_capacity.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 			res
 		})

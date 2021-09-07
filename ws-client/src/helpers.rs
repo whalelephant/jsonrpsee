@@ -33,7 +33,7 @@ use crate::types::v2::{
 	response::JsonRpcResponse,
 };
 use crate::types::{Error, RequestMessage};
-use futures::channel::{mpsc, oneshot};
+use futures::channel::oneshot;
 use serde_json::Value as JsonValue;
 use std::time::Duration;
 

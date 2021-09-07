@@ -36,7 +36,7 @@ use crate::types::{
 	v2::params::SubscriptionId, Error, JsonValue, SubscriptionSinkWithTrace, SubscriptionStreamWithTrace,
 };
 use fnv::FnvHashMap;
-use futures::channel::{mpsc, oneshot};
+use futures::channel::oneshot;
 use std::collections::hash_map::{Entry, HashMap};
 
 #[derive(Debug)]
@@ -308,7 +308,8 @@ impl RequestManager {
 #[cfg(test)]
 mod tests {
 	use super::{Error, RequestManager};
-	use futures::channel::{mpsc, oneshot};
+	use crate::types::channel_with_trace;
+	use futures::channel::oneshot;
 	use jsonrpsee_types::v2::params::SubscriptionId;
 	use serde_json::Value as JsonValue;
 
@@ -323,8 +324,8 @@ mod tests {
 
 	#[test]
 	fn insert_remove_subscription_works() {
-		let (pending_sub_tx, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (sub_tx, _) = mpsc::channel::<JsonValue>(1);
+		let (pending_sub_tx, _) = oneshot::channel();
+		let (sub_tx, _) = channel_with_trace::<JsonValue>(1);
 		let mut manager = RequestManager::new();
 		assert!(manager.insert_pending_subscription(1, 2, pending_sub_tx, "unsubscribe_method".into()).is_ok());
 		let (unsub_req_id, _send_back_oneshot, unsubscribe_method) = manager.complete_pending_subscription(1).unwrap();
@@ -345,10 +346,10 @@ mod tests {
 
 	#[test]
 	fn insert_subscription_with_same_sub_and_unsub_id_should_err() {
-		let (tx1, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (tx2, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (tx3, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (tx4, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
+		let (tx1, _) = oneshot::channel();
+		let (tx2, _) = oneshot::channel();
+		let (tx3, _) = oneshot::channel();
+		let (tx4, _) = oneshot::channel();
 		let mut manager = RequestManager::new();
 		assert!(manager.insert_pending_subscription(1, 1, tx1, "unsubscribe_method".into()).is_err());
 		assert!(manager.insert_pending_subscription(0, 1, tx2, "unsubscribe_method".into()).is_ok());
@@ -364,10 +365,10 @@ mod tests {
 
 	#[test]
 	fn pending_method_call_faulty() {
-		let (request_tx1, _) = oneshot::channel::<Result<JsonValue, Error>>();
-		let (request_tx2, _) = oneshot::channel::<Result<JsonValue, Error>>();
-		let (pending_sub_tx, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (sub_tx, _) = mpsc::channel::<JsonValue>(1);
+		let (request_tx1, _) = oneshot::channel();
+		let (request_tx2, _) = oneshot::channel();
+		let (pending_sub_tx, _) = oneshot::channel();
+		let (sub_tx, _) = channel_with_trace(1);
 
 		let mut manager = RequestManager::new();
 		assert!(manager.insert_pending_call(0, Some(request_tx1)).is_ok());
@@ -382,10 +383,10 @@ mod tests {
 
 	#[test]
 	fn pending_subscription_faulty() {
-		let (request_tx, _) = oneshot::channel::<Result<JsonValue, Error>>();
-		let (pending_sub_tx1, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (pending_sub_tx2, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (sub_tx, _) = mpsc::channel::<JsonValue>(1);
+		let (request_tx, _) = oneshot::channel();
+		let (pending_sub_tx1, _) = oneshot::channel();
+		let (pending_sub_tx2, _) = oneshot::channel();
+		let (sub_tx, _) = channel_with_trace(1);
 
 		let mut manager = RequestManager::new();
 		assert!(manager.insert_pending_subscription(99, 100, pending_sub_tx1, "beef".to_string()).is_ok());
@@ -401,10 +402,10 @@ mod tests {
 
 	#[test]
 	fn active_subscriptions_faulty() {
-		let (request_tx, _) = oneshot::channel::<Result<JsonValue, Error>>();
-		let (pending_sub_tx, _) = oneshot::channel::<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>();
-		let (sub_tx1, _) = mpsc::channel::<JsonValue>(1);
-		let (sub_tx2, _) = mpsc::channel::<JsonValue>(1);
+		let (request_tx, _) = oneshot::channel();
+		let (pending_sub_tx, _) = oneshot::channel();
+		let (sub_tx1, _) = channel_with_trace(1);
+		let (sub_tx2, _) = channel_with_trace(1);
 
 		let mut manager = RequestManager::new();
 
