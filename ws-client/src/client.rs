@@ -38,8 +38,8 @@ use crate::types::{
 };
 use crate::{
 	helpers::{
-		build_unsubscribe_message, call_with_timeout, process_batch_response, process_error_response,
-		process_notification, process_single_response, process_subscription_response, stop_subscription,
+		call_with_timeout, process_batch_response, process_error_response, process_notification,
+		process_single_response, process_subscription_response, remove_subscription_and_unsubscribe, stop_subscription,
 	},
 	manager::RequestManager,
 	transport::CertificateStore,
@@ -589,7 +589,7 @@ async fn background_task(
 				// the channel was full or disconnected.
 				if let Some(unsub) = manager
 					.get_request_id_by_subscription_id(&sub_id)
-					.and_then(|req_id| build_unsubscribe_message(&mut manager, req_id, sub_id))
+					.and_then(|req_id| remove_subscription_and_unsubscribe(&mut manager, req_id, sub_id))
 				{
 					stop_subscription(&mut sender, &mut manager, unsub).await;
 				}
@@ -598,7 +598,7 @@ async fn background_task(
 			// User called `register_notification` on the front-end.
 			Either::Left((Some(FrontToBack::RegisterNotification(reg)), _)) => {
 				log::trace!("[backend] registering notification handler: {:?}", reg.method);
-				let (subscribe_tx, subscribe_rx) = mpsc::channel(max_notifs_per_subscription);
+				let (subscribe_tx, subscribe_rx) = crate::types::channel_with_trace(max_notifs_per_subscription);
 
 				if manager.insert_notification_handler(&reg.method, subscribe_tx).is_ok() {
 					let _ = reg.send_back.send(Ok((subscribe_rx, reg.method)));

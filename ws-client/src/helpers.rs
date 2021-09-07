@@ -85,15 +85,18 @@ pub fn process_subscription_response(
 	};
 
 	match manager.as_subscription_mut(&request_id) {
-		Some(send_back_sink) => match send_back_sink.try_send(notif.params.result) {
-			Ok(()) => Ok(()),
-			Err(err) => {
-				log::error!("Dropping subscription {:?} error: {:?}", sub_id, err);
-				let msg = build_unsubscribe_message(manager, request_id, sub_id)
-					.expect("request ID and subscription ID valid checked above; qed");
-				Err(Some(msg))
+		Some(send_back_sink) => {
+			log::trace!("subscription sink: {:?}", send_back_sink);
+			match send_back_sink.try_send(notif.params.result) {
+				Ok(()) => Ok(()),
+				Err(err) => {
+					log::error!("Dropping subscription {:?} error: {:?}", sub_id, err);
+					let msg = remove_subscription_and_unsubscribe(manager, request_id, sub_id)
+						.expect("request ID and subscription ID valid checked above; qed");
+					Err(Some(msg))
+				}
 			}
-		},
+		}
 		None => {
 			log::error!("Subscription ID: {:?} not an active subscription", sub_id);
 			Err(None)
@@ -155,14 +158,14 @@ pub fn process_single_response(
 				}
 			};
 
-			let (subscribe_tx, subscribe_rx) = mpsc::channel(max_capacity_per_subscription);
+			let (subscribe_tx, subscribe_rx) = jsonrpsee_types::channel_with_trace(max_capacity_per_subscription);
 			if manager
 				.insert_subscription(response_id, unsub_id, sub_id.clone(), subscribe_tx, unsubscribe_method)
 				.is_ok()
 			{
 				match send_back_oneshot.send(Ok((subscribe_rx, sub_id.clone()))) {
 					Ok(_) => Ok(None),
-					Err(_) => Ok(build_unsubscribe_message(manager, response_id, sub_id)),
+					Err(_) => Ok(remove_subscription_and_unsubscribe(manager, response_id, sub_id)),
 				}
 			} else {
 				let _ = send_back_oneshot.send(Err(Error::InvalidSubscriptionId));
@@ -185,7 +188,7 @@ pub async fn stop_subscription(sender: &mut WsSender, manager: &mut RequestManag
 }
 
 /// Builds an unsubscription message.
-pub fn build_unsubscribe_message(
+pub fn remove_subscription_and_unsubscribe(
 	manager: &mut RequestManager,
 	sub_req_id: u64,
 	sub_id: SubscriptionId,

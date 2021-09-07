@@ -30,6 +30,8 @@ use futures_channel::{mpsc, oneshot};
 use futures_util::{future::FutureExt, sink::SinkExt, stream::StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::fmt;
+use std::sync::{atomic::AtomicU64, Arc};
 
 /// Subscription kind
 #[derive(Debug)]
@@ -57,9 +59,9 @@ enum NotifResponse<Notif> {
 #[derive(Debug)]
 pub struct Subscription<Notif> {
 	/// Channel to send requests to the background task.
-	to_back: mpsc::Sender<FrontToBack>,
+	to_back: SubscriptionSinkWithTrace<FrontToBack>,
 	/// Channel from which we receive notifications from the server, as encoded `JsonValue`s.
-	notifs_rx: mpsc::Receiver<JsonValue>,
+	notifs_rx: SubscriptionStreamWithTrace<JsonValue>,
 	/// Callback kind.
 	kind: SubscriptionKind,
 	/// Marker in order to pin the `Notif` parameter.
@@ -69,8 +71,8 @@ pub struct Subscription<Notif> {
 impl<Notif> Subscription<Notif> {
 	/// Create a new subscription.
 	pub fn new(
-		to_back: mpsc::Sender<FrontToBack>,
-		notifs_rx: mpsc::Receiver<JsonValue>,
+		to_back: SubscriptionSinkWithTrace<FrontToBack>,
+		notifs_rx: SubscriptionStreamWithTrace<JsonValue>,
 		kind: SubscriptionKind,
 	) -> Self {
 		Self { to_back, notifs_rx, kind, marker: PhantomData }
@@ -113,7 +115,7 @@ pub struct SubscriptionMessage {
 	/// If the subscription succeeds, we return a [`mpsc::Receiver`] that will receive notifications.
 	/// When we get a response from the server about that subscription, we send the result over
 	/// this channel.
-	pub send_back: oneshot::Sender<Result<(mpsc::Receiver<JsonValue>, SubscriptionId), Error>>,
+	pub send_back: oneshot::Sender<Result<(SubscriptionStreamWithTrace<JsonValue>, SubscriptionId), Error>>,
 }
 
 /// RegisterNotification message.
@@ -158,6 +160,7 @@ where
 	/// This may return `Ok(None)` if the subscription has been terminated,
 	/// may happen if the channel becomes full or is dropped.
 	pub async fn next(&mut self) -> Result<Option<Notif>, Error> {
+		log::trace!("subscription stream: {:?}", self.notifs_rx);
 		match self.notifs_rx.next().await {
 			Some(n) => match serde_json::from_value::<NotifResponse<Notif>>(n) {
 				Ok(NotifResponse::Ok(parsed)) => Ok(Some(parsed)),
@@ -183,4 +186,72 @@ impl<Notif> Drop for Subscription<Notif> {
 		};
 		let _ = self.to_back.send(msg).now_or_never();
 	}
+}
+
+#[derive(Debug, Clone)]
+struct Trace {
+	max_capacity: usize,
+	used_capacity: Arc<AtomicU64>,
+}
+
+/// Sending end of the a subscription.
+#[derive(Clone)]
+pub struct SubscriptionSinkWithTrace<T> {
+	inner: mpsc::Sender<T>,
+	trace: Trace,
+}
+
+impl<T> fmt::Debug for SubscriptionSinkWithTrace<T> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("SubscriptionSinkWithTrace")
+			.field("max_capacity", &self.trace.max_capacity)
+			.field("used_capacity", &self.trace.used_capacity)
+			.finish()
+	}
+}
+
+/// Receiving end of a subscription.
+pub struct SubscriptionStreamWithTrace<T> {
+	inner: mpsc::Receiver<T>,
+	trace: Trace,
+}
+
+impl<T> fmt::Debug for SubscriptionStreamWithTrace<T> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("SubscriptionStreamWithTrace")
+			.field("max_capacity", &self.trace.max_capacity)
+			.field("used_capacity", &self.trace.used_capacity)
+			.finish()
+	}
+}
+
+impl<T> SubscriptionStreamWithTrace<T> {
+	///
+	pub async fn next(&mut self) -> Option<T> {
+		log::debug!("{:?}", self);
+		self.inner.next().await.map(|res| {
+			self.trace.used_capacity.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+			res
+		})
+	}
+}
+
+impl<T> SubscriptionSinkWithTrace<T> {
+	///
+	pub fn try_send(&mut self, msg: T) -> Result<(), mpsc::TrySendError<T>> {
+		log::debug!("{:?}", self);
+		self.inner.try_send(msg).map(|res| {
+			self.trace.used_capacity.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+			res
+		})
+	}
+}
+
+/// Create a `mpsc channel` with additional debugging info.
+pub fn channel_with_trace<T>(capacity: usize) -> (SubscriptionSinkWithTrace<T>, SubscriptionStreamWithTrace<T>) {
+	let trace = Trace { max_capacity: capacity, used_capacity: Arc::new(AtomicU64::new(0)) };
+	let (tx, rx) = mpsc::channel(capacity);
+	let rx = SubscriptionStreamWithTrace { inner: rx, trace: trace.clone() };
+	let tx = SubscriptionSinkWithTrace { inner: tx, trace };
+	(tx, rx)
 }

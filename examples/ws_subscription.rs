@@ -44,6 +44,9 @@ async fn main() -> anyhow::Result<()> {
 		client.subscribe("subscribe_hello", JsonRpcParams::NoParams, "unsubscribe_hello").await?;
 
 	let mut i = 0;
+
+	tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
 	while i <= NUM_SUBSCRIPTION_RESPONSES {
 		let r = subscribe_hello.next().await;
 		log::debug!("received {:?}", r);
