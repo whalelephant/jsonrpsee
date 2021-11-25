@@ -680,7 +680,7 @@ impl SubscriptionSink {
 	}
 
 	/// Check if the subscription is closed.
-	pub fn is_closed<T: Serialize>(&mut self, result: &T) -> bool {
+	pub fn is_closed(&mut self) -> bool {
 		self.inner.is_closed() || self.is_connected.is_none()
 	}
 
