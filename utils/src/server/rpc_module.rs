@@ -679,6 +679,11 @@ impl SubscriptionSink {
 		self.inner_send(msg).map_err(Into::into)
 	}
 
+	/// Check if the subscription is closed.
+	pub fn is_closed<T: Serialize>(&mut self, result: &T) -> bool {
+		self.inner.is_closed() || self.is_connected.is_none()
+	}
+
 	fn build_message<T: Serialize>(&self, result: &T) -> Result<String, Error> {
 		serde_json::to_string(&SubscriptionResponse {
 			jsonrpc: TwoPointZero,
