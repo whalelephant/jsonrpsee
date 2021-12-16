@@ -676,8 +676,8 @@ impl<Context: Send + Sync + 'static> RpcModule<Context> {
 
 						let mut s = subscribers.lock();
 						s.insert(uniq_sub, (method_sink.clone(), subscribe_method_name, conn_rx));
-						tracing::info!("active subs: {}", s.len());
-						tracing::info!("active subs: {:?}", s);
+						tracing::debug!("active subs: {}", s.len());
+						tracing::debug!("active subs: {:?}", s);
 
 						sub_id
 					};
@@ -732,8 +732,8 @@ impl<Context: Send + Sync + 'static> RpcModule<Context> {
 						let err = to_json_raw_value(&format!("Invalid subscription ID={}", sub_id)).ok();
 						sink.send_error(id, invalid_subscription_err(err.as_deref()))
 					};
-					tracing::info!("active subs: {}", s.len());
-					tracing::info!("active subs: {:?}", s);
+					tracing::debug!("active subs: {}", s.len());
+					tracing::debug!("active subs: {:?}", s);
 					res
 				})),
 			);
