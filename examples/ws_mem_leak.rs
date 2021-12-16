@@ -29,6 +29,7 @@ use jsonrpsee::{
 	types::{traits::SubscriptionClient, Subscription, JsonValue},
 	ws_client::WsClientBuilder,
 };
+use futures::stream::{FuturesUnordered, StreamExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -40,34 +41,61 @@ async fn main() -> anyhow::Result<()> {
 	let url = "ws://127.0.0.1:9944";
 	for _ in 0..1 {
 		// default max connections is 100.
-		run_concurrent_subscriptions(100, url, true).await;
-		run_concurrent_subscriptions(100, url, false).await;
+		run_concurrent_subscriptions(1, url, true).await;
+		// run_concurrent_subscriptions(100, url, false).await;
 	}
+
+	tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
 	Ok(())
 }
 
 async fn run_concurrent_subscriptions(n: usize, url: &'static str, graceful_shutdown: bool) {
-	let mut tasks = Vec::new();
-	for _ in 0..n {
-		let url = url.clone();
-		tasks.push(tokio::spawn(async move {
-			let client = WsClientBuilder::default().build(&url).await.unwrap();
-			let mut sub: Subscription<JsonValue> = client.subscribe("state_subscribeStorage", rpc_params![], "state_unsubscribeStorage").await.unwrap();
-			
-			// Make sure we the `initial response` and once more.
-			let r1 = sub.next().await.unwrap();
-			let r2 = sub.next().await.unwrap();
-			
-			// This will not call the `unsubscribe call`.
-			if !graceful_shutdown {
-				drop(client);
-			}
+    let keys: Vec<_> = (0..2)
+        .map(|nth| {
+            format!(
+                "0xf0c365c3cf59d671eb72da0e7a4113c49f1f0515f462cdcf84e0f1d6045d{:04x}",
+                nth
+            )
+        })
+        .collect();
 
-			tracing::debug!("{:?}", r1);
-			tracing::debug!("{:?}", r2);
-		}));
-	}
-	futures::future::join_all(tasks).await;
+
+    let mut futures: FuturesUnordered<_> = (0..n)
+        .map(|_| WsClientBuilder::default().build(url))
+        .collect();
+
+	let mut clients = Vec::new();
+    while let Some(client) = futures.next().await {
+        match client {
+            Ok(client) => clients.push(client),
+            Err(error) => tracing::error!("Failed to open connection: {}", error)
+        }
+    }
+
+    let mut futures_storage = FuturesUnordered::new();
+    for client in &mut clients {
+        for _ in 0..2 {
+            futures_storage.push(client.subscribe::<JsonValue>(
+                "state_subscribeStorage",
+                rpc_params![&keys],
+                "state_unsubscribeStorage",
+            ));
+        }
+    }
+
+	let mut subs = Vec::new();
+
+	while let Some(subscription) = futures_storage.next().await {
+        if let Ok(subscription) = subscription {
+			subs.push(subscription);
+        } else {
+			panic!("err");
+		}
+    }
+
+	tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+
+	std::mem::drop(subs);
 }
 
