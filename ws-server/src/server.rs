@@ -128,6 +128,7 @@ impl<M: Middleware> Server<M> {
 						},
 					)));
 
+					tracing::warn!("Active connections: {} / {}", connections.count(), self.cfg.max_connections);
 					id = id.wrapping_add(1);
 				}
 				Err(MonitoredError::Selector(err)) => {

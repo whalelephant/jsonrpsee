@@ -67,7 +67,7 @@ pub type SubscriptionId = u64;
 /// Raw RPC response.
 pub type RawRpcResponse = (String, mpsc::UnboundedReceiver<String>, mpsc::UnboundedSender<String>);
 
-type Subscribers = Arc<Mutex<FxHashMap<SubscriptionKey, (MethodSink, oneshot::Receiver<()>)>>>;
+type Subscribers = Arc<Mutex<FxHashMap<SubscriptionKey, (MethodSink, &'static str, oneshot::Receiver<()>)>>>;
 
 /// Represent a unique subscription entry based on [`SubscriptionId`] and [`ConnectionId`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -674,7 +674,10 @@ impl<Context: Send + Sync + 'static> RpcModule<Context> {
 						let sub_id = rand::random::<SubscriptionId>() & JS_NUM_MASK;
 						let uniq_sub = SubscriptionKey { conn_id, sub_id };
 
-						subscribers.lock().insert(uniq_sub, (method_sink.clone(), conn_rx));
+						let mut s = subscribers.lock();
+						s.insert(uniq_sub, (method_sink.clone(), subscribe_method_name, conn_rx));
+						tracing::info!("active subs: {}", s.len());
+						tracing::info!("active subs: {:?}", s);
 
 						sub_id
 					};
@@ -721,12 +724,17 @@ impl<Context: Send + Sync + 'static> RpcModule<Context> {
 						}
 					};
 
-					if subscribers.lock().remove(&SubscriptionKey { conn_id, sub_id }).is_some() {
+					let mut s = subscribers.lock();
+
+					let res = if s.remove(&SubscriptionKey { conn_id, sub_id }).is_some() {
 						sink.send_response(id, "Unsubscribed")
 					} else {
 						let err = to_json_raw_value(&format!("Invalid subscription ID={}", sub_id)).ok();
 						sink.send_error(id, invalid_subscription_err(err.as_deref()))
-					}
+					};
+					tracing::info!("active subs: {}", s.len());
+					tracing::info!("active subs: {:?}", s);
+					res
 				})),
 			);
 		}
@@ -820,7 +828,7 @@ impl SubscriptionSink {
 
 	fn inner_close(&mut self, close_reason: Option<&SubscriptionClosed>) {
 		self.is_connected.take();
-		if let Some((sink, _)) = self.subscribers.lock().remove(&self.uniq_sub) {
+		if let Some((sink, _, _)) = self.subscribers.lock().remove(&self.uniq_sub) {
 			tracing::debug!("Closing subscription: {:?} reason: {:?}", self.uniq_sub.sub_id, close_reason);
 			if let Some(close_reason) = close_reason {
 				let msg = self.build_message(close_reason).expect("valid json infallible; qed");
