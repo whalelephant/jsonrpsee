@@ -32,6 +32,7 @@ use crate::types::{
 };
 use async_trait::async_trait;
 use beef::Cow;
+use json_rpc_types::{Id as JsonId, Response as JsonResponse};
 use rustc_hash::FxHashMap;
 use serde::de::DeserializeOwned;
 use std::{sync::Arc, time::Duration};
@@ -136,7 +137,7 @@ impl Client for HttpClient {
 			}
 		};
 
-		let response: Response<_> = match serde_json::from_slice(&body) {
+		let response: JsonResponse<_, String> = match serde_json::from_slice(&body) {
 			Ok(response) => response,
 			Err(_) => {
 				let err: RpcError = serde_json::from_slice(&body).map_err(Error::ParseError)?;
@@ -144,12 +145,29 @@ impl Client for HttpClient {
 			}
 		};
 
-		let response_id = response.id.as_number().copied().ok_or(Error::InvalidRequestId)?;
+		match response.id {
+			Some(response_id) => match response_id {
+				JsonId::Num(n) => {
+					if n != *id.inner() {
+						return Err(Error::InvalidRequestId);
+					}
+				}
+				JsonId::Str(n) => {
+					if n != *id.inner().to_string() {
+						return Err(Error::InvalidRequestId);
+					}
+				}
+			},
+			None => {
+				return Err(Error::InvalidRequestId);
+			}
+		}
 
-		if response_id == *id.inner() {
-			Ok(response.result)
-		} else {
-			Err(Error::InvalidRequestId)
+		match response.payload {
+			Ok(result) => Ok(result),
+			Err(e) => {
+				return Err(Error::Request(e.message.to_string()));
+			}
 		}
 	}
 
@@ -186,12 +204,15 @@ impl Client for HttpClient {
 		// NOTE: `R::default` is placeholder and will be replaced in loop below.
 		let mut responses = vec![R::default(); ordered_requests.len()];
 		for rp in rps {
-			let response_id = rp.id.as_number().copied().ok_or(Error::InvalidRequestId)?;
-			let pos = match request_set.get(&response_id) {
-				Some(pos) => *pos,
-				None => return Err(Error::InvalidRequestId),
-			};
-			responses[pos] = rp.result
+			if let Some(id_num) = rp.id.as_number() {
+				let pos = match request_set.get(&id_num) {
+					Some(pos) => *pos,
+					None => return Err(Error::InvalidRequestId),
+				};
+				responses[pos] = rp.result
+			} else {
+				return Err(Error::InvalidRequestId);
+			}
 		}
 		Ok(responses)
 	}
