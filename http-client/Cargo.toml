@@ -21,6 +21,7 @@ serde_json = "1.0"
 thiserror = "1.0"
 tokio = { version = "1.8", features = ["time"] }
 tracing = "0.1"
+beef = { version = "0.5.1", features = ["impl_serde"] }
 
 [dev-dependencies]
 jsonrpsee-test-utils = { path = "../test-utils" }

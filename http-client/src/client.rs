@@ -31,6 +31,7 @@ use crate::types::{
 	CertificateStore, Error, RequestIdManager, Subscription, TEN_MB_SIZE_BYTES,
 };
 use async_trait::async_trait;
+use beef::Cow;
 use rustc_hash::FxHashMap;
 use serde::de::DeserializeOwned;
 use std::{sync::Arc, time::Duration};
@@ -121,7 +122,8 @@ impl Client for HttpClient {
 		R: DeserializeOwned,
 	{
 		let id = self.id_manager.next_request_id()?;
-		let request = RequestSer::new(Id::Number(*id.inner()), method, params);
+		let id_str = format!("{}", *id.inner());
+		let request = RequestSer::new(Id::Str(Cow::owned(id_str)), method, params);
 
 		let fut = self.transport.send_and_read_body(serde_json::to_string(&request).map_err(Error::ParseError)?);
 		let body = match tokio::time::timeout(self.request_timeout, fut).await {
